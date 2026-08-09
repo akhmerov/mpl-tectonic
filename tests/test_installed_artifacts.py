@@ -43,6 +43,7 @@ def _check_contents(wheel: Path, sdist: Path) -> None:
         ("src", "mpl_tectonic", "_patch.py"),
         ("tests", "test_mpl_tectonic.py"),
         ("tests", "installed_runtime_check.py"),
+        ("tests", "test_conda_artifact.py"),
     }
     assert required <= names
 

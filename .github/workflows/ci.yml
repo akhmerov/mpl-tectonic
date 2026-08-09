@@ -22,6 +22,10 @@ jobs:
         run: pixi run pre-commit
       - name: Build distributions once
         run: pixi run build
+      - name: Build conda package
+        run: pixi run build-conda
+      - name: Test exact conda package
+        run: pixi run test-conda-artifact
       - name: Test source installation
         run: pixi run test-unit
       - name: Test exact wheel and sdist

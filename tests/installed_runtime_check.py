@@ -9,7 +9,7 @@ import tempfile
 import xml.etree.ElementTree as ET
 
 
-expected_site = Path(sys.argv[1]).resolve()
+expected_site = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else None
 with tempfile.TemporaryDirectory() as config_dir:
     os.environ["MPLCONFIGDIR"] = config_dir
 
@@ -21,7 +21,7 @@ with tempfile.TemporaryDirectory() as config_dir:
     from pypdf import PdfReader
 
     imported = Path(mpl_tectonic.__file__).resolve()
-    if not imported.is_relative_to(expected_site):
+    if expected_site is not None and not imported.is_relative_to(expected_site):
         raise AssertionError(
             f"imported {imported}, expected installation in {expected_site}"
         )

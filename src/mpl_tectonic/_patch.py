@@ -158,7 +158,9 @@ def _find_in_tectonic_bundle(filename: str | bytes) -> str:
             except subprocess.CalledProcessError:
                 path.unlink(missing_ok=True)
                 raise FileNotFoundError(
-                    f"Neither kpathsea nor Tectonic's bundle contains {name!r}"
+                    f"Could not resolve {name!r} through kpathsea or materialize "
+                    "it from Tectonic's bundle. Check that the resource exists "
+                    "and that Tectonic can access its bundle cache or network."
                 ) from None
         return str(path)
 

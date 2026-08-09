@@ -2,6 +2,26 @@
 name = "mpl-tectonic"
 channels = ["conda-forge"]
 platforms = ["linux-64"]
+preview = ["pixi-build"]
+
+[package]
+name = "mpl-tectonic"
+version = "0.1.0"
+
+[package.build]
+backend = { name = "pixi-build-python", version = "0.8.*", channels = ["https://prefix.dev/conda-forge"] }
+
+[package.build.config]
+noarch = true
+ignore-pypi-mapping = true
+
+[package.host-dependencies]
+hatchling = ">=1.27,<2"
+
+[package.run-dependencies]
+python = ">=3.11"
+matplotlib-base = ">=3.11,<3.12"
+tectonic = ">=0.15,<0.16"
 
 [dependencies]
 python = ">=3.12,<3.15"
@@ -24,6 +44,7 @@ MPLCONFIGDIR = ".mplconfig"
 
 [tasks]
 build = "python -m build --no-isolation"
+build-conda = 'PIXI_CACHE_DIR="$PIXI_PROJECT_ROOT/.pixi/cache" pixi publish --path . --target-dir build/conda --force'
 lint = "ruff check ."
 format = "ruff format ."
 format-check = "ruff format --check ."
@@ -31,5 +52,6 @@ codespell = "codespell"
 pre-commit = "pre-commit run --all-files"
 install-hooks = "pre-commit install"
 test-unit = "pytest -q"
-test-artifacts = "python tests/test_installed_artifacts.py"
-test = { depends-on = ["pre-commit", "build", "test-unit", "test-artifacts"] }
+test-artifacts = { cmd = "python tests/test_installed_artifacts.py", depends-on = ["build"] }
+test-conda-artifact = { cmd = "python tests/test_conda_artifact.py", depends-on = ["build-conda"] }
+test = { depends-on = ["pre-commit", "test-unit", "test-artifacts", "test-conda-artifact"] }

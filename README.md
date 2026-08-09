@@ -66,6 +66,9 @@ subsetted fonts rather than converting an SVG or raster image.
 - Activation is process-global and permanent. Call `enable()` during
   single-threaded application setup, before concurrent rendering begins.
 - PNG, path-based SVG, and native PDF are supported.
+- Every label must be valid TeX once `text.usetex` is enabled. For example,
+  literal `e^2/h` must be written as `$e^2/h$`; the package intentionally does
+  not rewrite project text.
 - The ordinary research-figure PDF regime—ASCII prose plus TeX math
   commands—is supported. Literal or TeX-accented non-ASCII prose may select an
   XDV native-font glyph ID above 255, which Matplotlib 3.11's PDF renderer
@@ -83,6 +86,13 @@ the full output checks from each artifact:
 
 ```console
 pixi run test
+```
+
+The same manifest also builds a noarch conda package with explicit Python,
+Matplotlib, and Tectonic runtime dependencies:
+
+```console
+pixi run build-conda
 ```
 
 The test task includes the local pre-commit suite: Ruff linting, a Ruff format
