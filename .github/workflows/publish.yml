@@ -1,0 +1,50 @@
+name: Publish to PyPI
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    uses: ./.github/workflows/ci.yml
+
+  verify-tag:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: python-distributions
+          path: dist
+      - name: Require tag to match artifact version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          wheel=$(find dist -maxdepth 1 -name 'mpl_tectonic-*.whl' -printf '%f\n')
+          version=${wheel#mpl_tectonic-}
+          version=${version%%-*}
+          test "$RELEASE_TAG" = "v$version"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: verified-python-distributions
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    needs: verify-tag
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/mpl-tectonic/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: verified-python-distributions
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@v1.14.2
