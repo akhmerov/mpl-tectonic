@@ -57,7 +57,9 @@ def test_missing_tectonic_error_is_actionable(monkeypatch: pytest.MonkeyPatch) -
     from mpl_tectonic import _patch
 
     monkeypatch.setattr(_patch.shutil, "which", lambda executable: None)
-    with pytest.raises(RuntimeError, match="requires the 'tectonic' executable on PATH"):
+    with pytest.raises(
+        RuntimeError, match="requires the 'tectonic' executable on PATH"
+    ):
         _patch._validate_tectonic()
 
 
@@ -165,7 +167,9 @@ def test_tectonic_renders_native_pdf_with_embedded_fonts(tmp_path: Path) -> None
     reader = PdfReader(output, strict=True)
     assert len(reader.pages) == 1
     fonts = reader.pages[0]["/Resources"]["/Font"]
-    base_fonts = [str(font.get_object().get("/BaseFont", "")) for font in fonts.values()]
+    base_fonts = [
+        str(font.get_object().get("/BaseFont", "")) for font in fonts.values()
+    ]
     assert any("LMSans" in name for name in base_fonts)
     assert any(_has_embedded_font_file(font) for font in fonts.values())
 

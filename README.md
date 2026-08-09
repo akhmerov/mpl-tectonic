@@ -85,6 +85,15 @@ the full output checks from each artifact:
 pixi run test
 ```
 
+The test task includes the local pre-commit suite: Ruff linting, a Ruff format
+check, and codespell. To apply formatting or install the Git hook explicitly,
+use:
+
+```console
+pixi run format
+pixi run install-hooks
+```
+
 GitHub Actions runs the same workflow. Version tags matching `v*` trigger a
 separate Trusted Publishing workflow: it builds once, tests those exact wheel
 and sdist files, transfers them as one immutable Actions artifact, and publishes

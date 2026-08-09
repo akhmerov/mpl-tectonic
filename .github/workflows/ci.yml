@@ -18,6 +18,8 @@ jobs:
         with:
           cache: true
           frozen: true
+      - name: Run pre-commit checks
+        run: pixi run pre-commit
       - name: Build distributions once
         run: pixi run build
       - name: Test source installation

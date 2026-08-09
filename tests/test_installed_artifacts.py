@@ -38,6 +38,7 @@ def _check_contents(wheel: Path, sdist: Path) -> None:
         ("LICENSE",),
         ("pixi.toml",),
         ("pixi.lock",),
+        (".pre-commit-config.yaml",),
         ("src", "mpl_tectonic", "__init__.py"),
         ("src", "mpl_tectonic", "_patch.py"),
         ("tests", "test_mpl_tectonic.py"),

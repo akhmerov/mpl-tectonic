@@ -22,7 +22,9 @@ with tempfile.TemporaryDirectory() as config_dir:
 
     imported = Path(mpl_tectonic.__file__).resolve()
     if not imported.is_relative_to(expected_site):
-        raise AssertionError(f"imported {imported}, expected installation in {expected_site}")
+        raise AssertionError(
+            f"imported {imported}, expected installation in {expected_site}"
+        )
 
     mpl_tectonic.enable()
     mpl_tectonic.enable()

@@ -12,6 +12,9 @@ pypdf = ">=6,<7"
 hatchling = ">=1.27,<2"
 python-build = ">=1.3,<2"
 pip = ">=25,<27"
+pre-commit = ">=4,<5"
+ruff = ">=0.12,<0.15"
+codespell = ">=2.4,<3"
 
 [pypi-dependencies]
 mpl-tectonic = { path = ".", editable = true }
@@ -21,6 +24,12 @@ MPLCONFIGDIR = ".mplconfig"
 
 [tasks]
 build = "python -m build --no-isolation"
+lint = "ruff check ."
+format = "ruff format ."
+format-check = "ruff format --check ."
+codespell = "codespell"
+pre-commit = "pre-commit run --all-files"
+install-hooks = "pre-commit install"
 test-unit = "pytest -q"
 test-artifacts = "python tests/test_installed_artifacts.py"
-test = { depends-on = ["build", "test-unit", "test-artifacts"] }
+test = { depends-on = ["pre-commit", "build", "test-unit", "test-artifacts"] }

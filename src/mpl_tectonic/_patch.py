@@ -129,9 +129,7 @@ def _font_from_tectonic_bundle(
         path = font_dir / f"{path.name}.otf"
         if not path.exists():
             path.write_bytes(
-                subprocess.check_output(
-                    [_tectonic(), "-X", "bundle", "cat", path.name]
-                )
+                subprocess.check_output([_tectonic(), "-X", "bundle", "cat", path.name])
             )
     return _ORIGINAL_FONT_FROM_XETEX.__func__(
         cls, scale, os.fsencode(path), subfont, effects

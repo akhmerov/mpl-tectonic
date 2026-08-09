@@ -28,6 +28,7 @@ packages = ["src/mpl_tectonic"]
 [tool.hatch.build.targets.sdist]
 include = [
   "/.github",
+  "/.pre-commit-config.yaml",
   "/src",
   "/tests",
   "/LICENSE",
@@ -40,3 +41,10 @@ include = [
 [tool.pytest.ini_options]
 addopts = "-ra --strict-config --strict-markers"
 testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py311"
+
+[tool.codespell]
+skip = ".git,.pixi,.pytest_cache,.mplconfig,build,dist,pixi.lock"
+ignore-words-list = "dvi,dvifont,dvipath,kpathsea,pdfname,texname,usetex,xdvfile"
