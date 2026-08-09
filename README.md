@@ -50,7 +50,7 @@ integration points:
 
 - pdfLaTeX-only UTF-8 declarations are removed from Matplotlib's generated TeX;
 - native fonts and classic TeX resources are materialized from Tectonic's
-  bundle when kpathsea cannot find them;
+  bundle, keeping resource resolution consistent with the compiler;
 - XDV native OpenType fonts use Matplotlib's TrueType PDF embedding path and
   safe PDF resource names;
 - Matplotlib's opaque one-byte native-glyph failure is replaced with an

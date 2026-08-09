@@ -85,6 +85,32 @@ def test_tex_source_removes_only_matplotlibs_pdftex_unicode_setup() -> None:
     assert custom_declaration in source
 
 
+def test_tex_resources_come_only_from_tectonic_bundle(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from mpl_tectonic import _patch
+
+    calls = []
+
+    def bundle_cat(command: list[str], *, stderr: int) -> bytes:
+        calls.append((command, stderr))
+        return b"bundle resource"
+
+    monkeypatch.setattr(TexManager, "_cache_dir", tmp_path)
+    monkeypatch.setattr(_patch, "_tectonic", lambda: "/usr/bin/tectonic")
+    monkeypatch.setattr(_patch.subprocess, "check_output", bundle_cat)
+
+    resolved = Path(_patch._find_in_tectonic_bundle("pdftex.map"))
+
+    assert resolved.read_bytes() == b"bundle resource"
+    assert calls == [
+        (
+            ["/usr/bin/tectonic", "-X", "bundle", "cat", "pdftex.map"],
+            subprocess.DEVNULL,
+        )
+    ]
+
+
 def test_enable_installs_every_hook_and_is_idempotent() -> None:
     before = {
         "make_dvi": TexManager.__dict__["make_dvi"],

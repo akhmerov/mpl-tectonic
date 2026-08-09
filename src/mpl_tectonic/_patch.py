@@ -29,9 +29,7 @@ _enabled = False
 _enable_lock = threading.Lock()
 _tectonic_executable: str | None = None
 
-_ORIGINAL_MAKE_DVI = TexManager.__dict__["make_dvi"]
 _ORIGINAL_FONT_FROM_XETEX = DviFont.__dict__["from_xetex"]
-_ORIGINAL_FIND_TEX_FILE = dviread.find_tex_file
 _ORIGINAL_EMBED_TEX_FONT = PdfFile._embedTeXFont
 _ORIGINAL_DVI_FONT_NAME = PdfFile.dviFontName
 _ORIGINAL_DRAW_TEX = RendererPdf.draw_tex
@@ -146,32 +144,31 @@ def _font_from_tectonic_bundle(
 
 
 def _find_in_tectonic_bundle(filename: str | bytes) -> str:
-    """Fall back from kpathsea to Tectonic's bundle for TeX resources."""
-    try:
-        return _ORIGINAL_FIND_TEX_FILE(filename)
-    except FileNotFoundError:
-        name = os.fsdecode(filename)
-        if Path(name).name != name:
-            raise
-        resource_dir = TexManager._cache_dir / "tectonic-resources"
-        resource_dir.mkdir(exist_ok=True)
-        path = resource_dir / name
-        if not path.exists():
-            try:
-                path.write_bytes(
-                    subprocess.check_output(
-                        [_tectonic(), "-X", "bundle", "cat", name],
-                        stderr=subprocess.DEVNULL,
-                    )
+    """Materialize a TeX resource from the bundle used by Tectonic."""
+    name = os.fsdecode(filename)
+    if Path(name).name != name:
+        raise FileNotFoundError(
+            f"Tectonic bundle resources must be requested by basename; got {name!r}"
+        )
+    resource_dir = TexManager._cache_dir / "tectonic-resources"
+    resource_dir.mkdir(exist_ok=True)
+    path = resource_dir / name
+    if not path.exists():
+        try:
+            path.write_bytes(
+                subprocess.check_output(
+                    [_tectonic(), "-X", "bundle", "cat", name],
+                    stderr=subprocess.DEVNULL,
                 )
-            except subprocess.CalledProcessError:
-                path.unlink(missing_ok=True)
-                raise FileNotFoundError(
-                    f"Could not resolve {name!r} through kpathsea or materialize "
-                    "it from Tectonic's bundle. Check that the resource exists "
-                    "and that Tectonic can access its bundle cache or network."
-                ) from None
-        return str(path)
+            )
+        except subprocess.CalledProcessError:
+            path.unlink(missing_ok=True)
+            raise FileNotFoundError(
+                f"Could not materialize {name!r} from Tectonic's bundle. Check "
+                "that the resource exists and that Tectonic can access its "
+                "bundle cache or network."
+            ) from None
+    return str(path)
 
 
 def _embed_tex_font_with_opentype(self: PdfFile, dvifont: DviFont):
