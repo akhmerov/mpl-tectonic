@@ -15,8 +15,9 @@ jobs:
   verify-tag:
     needs: build-and-test
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: python-distributions
           path: dist
@@ -28,7 +29,7 @@ jobs:
           version=${wheel#mpl_tectonic-}
           version=${version%%-*}
           test "$RELEASE_TAG" = "v$version"
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: verified-python-distributions
           path: dist/
@@ -37,14 +38,15 @@ jobs:
   publish:
     needs: verify-tag
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     environment:
       name: pypi
       url: https://pypi.org/project/mpl-tectonic/
     permissions:
       id-token: write
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: verified-python-distributions
           path: dist
-      - uses: pypa/gh-action-pypi-publish@v1.14.2
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
