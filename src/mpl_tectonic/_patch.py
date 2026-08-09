@@ -84,9 +84,18 @@ def _tectonic() -> str:
 
 def _tectonic_tex_source(tex: str, fontsize: float) -> str:
     """Return Matplotlib's source without its pdfLaTeX-only UTF-8 setup."""
-    source = TexManager._get_tex_source(tex, fontsize)
-    return source.replace("\\usepackage[utf8]{inputenc}\n", "").replace(
-        "\\DeclareUnicodeCharacter{2212}{\\ensuremath{-}}\n", ""
+    lines = TexManager._get_tex_source(tex, fontsize).splitlines(keepends=True)
+    for index, line in enumerate(lines):
+        if re.fullmatch(r"\\usepackage(?:\[[^]]*\])?\{inputenc\}", line.strip()):
+            del lines[index]
+            while index < len(lines) and lines[index].lstrip().startswith(
+                r"\DeclareUnicodeCharacter"
+            ):
+                del lines[index]
+            return "".join(lines)
+    raise RuntimeError(
+        "Matplotlib generated TeX without the expected inputenc setup; "
+        "mpl-tectonic's Matplotlib compatibility assumptions no longer hold."
     )
 
 

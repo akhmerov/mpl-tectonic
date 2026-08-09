@@ -73,6 +73,18 @@ def test_unsupported_matplotlib_error_is_actionable(
         _patch._validate_matplotlib()
 
 
+def test_tex_source_removes_only_matplotlibs_pdftex_unicode_setup() -> None:
+    from mpl_tectonic import _patch
+
+    custom_declaration = r"\DeclareUnicodeCharacter{1234}{custom}"
+    with matplotlib.rc_context({"text.latex.preamble": custom_declaration}):
+        source = _patch._tectonic_tex_source(r"$x$", 10)
+
+    assert r"\usepackage[utf8]{inputenc}" not in source
+    assert r"\DeclareUnicodeCharacter{2212}" not in source
+    assert custom_declaration in source
+
+
 def test_enable_installs_every_hook_and_is_idempotent() -> None:
     before = {
         "make_dvi": TexManager.__dict__["make_dvi"],
