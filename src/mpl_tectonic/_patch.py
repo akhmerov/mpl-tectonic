@@ -133,7 +133,7 @@ def _font_from_tectonic_bundle(
     if not path.exists() and path.name == str(path):
         font_dir = TexManager._cache_dir / "tectonic-fonts"
         font_dir.mkdir(exist_ok=True)
-        path = font_dir / path.name
+        path = (font_dir / path.name).with_suffix(".otf")
         if not path.exists():
             path.write_bytes(
                 subprocess.check_output([_tectonic(), "-X", "bundle", "cat", path.name])
