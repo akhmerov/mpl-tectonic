@@ -6,7 +6,7 @@ preview = ["pixi-build"]
 
 [package]
 name = "mpl-tectonic"
-version = "0.1.0"
+version = "0.1.1"
 
 [package.build]
 backend = { name = "pixi-build-python", version = "0.8.*", channels = ["https://prefix.dev/conda-forge"] }
