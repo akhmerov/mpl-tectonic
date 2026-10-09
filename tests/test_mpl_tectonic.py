@@ -5,6 +5,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
@@ -84,9 +85,9 @@ def test_tex_source_adapts_matplotlibs_pdftex_unicode_setup() -> None:
         source = _patch._tectonic_tex_source(r"$x$", 10)
 
     assert r"\usepackage[utf8]{inputenc}" not in source
-    assert r"\DeclareUnicodeCharacter{2212}" not in source
-    assert "\\catcode`\\\N{MINUS SIGN}=\\active" in source
-    assert "\\tracinglostchars=3" in source
+    assert r"\providecommand\DeclareUnicodeCharacter" in source
+    assert r"\DeclareUnicodeCharacter{2212}{\ensuremath{-}}" in source
+    assert r"\tracinglostchars=3" in source
     assert custom_declaration in source
 
 
@@ -94,14 +95,9 @@ def test_tex_source_adapts_matplotlibs_pdftex_unicode_setup() -> None:
 def fresh_bundle_cache() -> Iterator[None]:
     from mpl_tectonic import _patch
 
-    def clear() -> None:
-        for value in vars(_patch).values():
-            if hasattr(value, "cache_clear"):
-                value.cache_clear()
-
-    clear()
+    _patch._absent_resources.clear()
     yield
-    clear()
+    _patch._absent_resources.clear()
 
 
 def _fake_tectonic(
@@ -109,6 +105,7 @@ def _fake_tectonic(
     tmp_path: Path,
     files: dict[str, bytes],
     stderr: bytes = b"",
+    unreachable: set[str] | None = None,
 ) -> list[list[str]]:
     from mpl_tectonic import _patch
 
@@ -117,13 +114,19 @@ def _fake_tectonic(
     def run(command: list[str], *, check: bool = False, **kwargs: object):
         calls.append(command)
         match command[1:]:
+            case ["-X", "bundle", "cat", name] if name in (unreachable or ()):
+                stdout, returncode = b"", 1
+                diagnostics = stderr + b"\nwarning: failure fetching from network"
             case ["-X", "bundle", "cat", name] if name in files:
-                stdout, returncode = files[name], 0
+                stdout, returncode, diagnostics = files[name], 0, stderr
             case _:
                 stdout, returncode = b"", 1
+                diagnostics = stderr + b"\nerror: not found"
         if check and returncode:
-            raise subprocess.CalledProcessError(returncode, command, stdout, stderr)
-        return subprocess.CompletedProcess(command, returncode, stdout, stderr)
+            raise subprocess.CalledProcessError(
+                returncode, command, stdout, diagnostics
+            )
+        return subprocess.CompletedProcess(command, returncode, stdout, diagnostics)
 
     monkeypatch.setattr(TexManager, "_cache_dir", tmp_path)
     monkeypatch.setattr(_patch, "_tectonic", lambda: "/usr/bin/tectonic")
@@ -162,6 +165,27 @@ def test_tex_resource_hits_and_misses_are_looked_up_once(
         ["/usr/bin/tectonic", "-X", "bundle", "cat", "cmr10.vf"],
         ["/usr/bin/tectonic", "-X", "bundle", "cat", "lmr10.vf"],
     ]
+
+
+def test_tex_resource_failures_other_than_absence_are_retried(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fresh_bundle_cache: None
+) -> None:
+    from mpl_tectonic import _patch
+
+    unreachable = {"cmr10.tfm"}
+    _fake_tectonic(
+        monkeypatch, tmp_path, {"cmr10.tfm": b"tfm"}, unreachable=unreachable
+    )
+
+    with pytest.raises(RuntimeError, match="failure fetching from network"):
+        _patch._find_in_tectonic_bundle("cmr10.tfm")
+    unreachable.clear()
+    resolved = Path(_patch._find_in_tectonic_bundle("cmr10.tfm"))
+    assert resolved.read_bytes() == b"tfm"
+
+    # A resource removed from Matplotlib's cache is fetched again.
+    resolved.unlink()
+    assert Path(_patch._find_in_tectonic_bundle("cmr10.tfm")).read_bytes() == b"tfm"
 
 
 def test_tectonic_diagnostics_are_logged_and_reported_on_failure(
@@ -330,6 +354,13 @@ def test_dvi_from_matplotlibs_source_is_not_reused(
     assert Path(TexManager.make_dvi(tex, 10)).read_bytes() != b"stale"
 
 
+def test_preamble_unicode_declarations_are_typeset() -> None:
+    mpl_tectonic.enable()
+    preamble = r"\DeclareUnicodeCharacter{00B5}{\ensuremath{\mu}}"
+    with plt.rc_context({"text.latex.preamble": preamble}):
+        assert _glyphs("\N{MICRO SIGN}") == _glyphs(r"$\mu$")
+
+
 def test_glyph_missing_from_font_is_an_error() -> None:
     mpl_tectonic.enable()
     with pytest.raises(RuntimeError, match="Missing character"):
@@ -350,6 +381,11 @@ with plt.rc_context({"text.usetex": True}):
     ax.set_xlabel(r"energy $E / \\Delta$")
     fig.savefig(sys.argv[1])
 """
+    config_dir = tmp_path / "mplconfig"
+    config_dir.mkdir()
+    # Reuse the font cache: Matplotlib announces a slow rebuild on stderr.
+    for fontlist in Path(matplotlib.get_cachedir()).glob("fontlist-*.json"):
+        shutil.copy(fontlist, config_dir)
     output = tmp_path / "render.pdf"
     result = subprocess.run(
         [sys.executable, "-c", code, output],
@@ -357,7 +393,7 @@ with plt.rc_context({"text.usetex": True}):
         text=True,
         env={
             **os.environ,
-            "MPLCONFIGDIR": str(tmp_path / "mplconfig"),
+            "MPLCONFIGDIR": str(config_dir),
             "TECTONIC_CACHE_DIR": str(tmp_path / "tectonic"),
         },
     )
