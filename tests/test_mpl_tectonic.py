@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 import json
+import logging
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -73,7 +76,7 @@ def test_unsupported_matplotlib_error_is_actionable(
         _patch._validate_matplotlib()
 
 
-def test_tex_source_removes_only_matplotlibs_pdftex_unicode_setup() -> None:
+def test_tex_source_adapts_matplotlibs_pdftex_unicode_setup() -> None:
     from mpl_tectonic import _patch
 
     custom_declaration = r"\DeclareUnicodeCharacter{1234}{custom}"
@@ -82,33 +85,102 @@ def test_tex_source_removes_only_matplotlibs_pdftex_unicode_setup() -> None:
 
     assert r"\usepackage[utf8]{inputenc}" not in source
     assert r"\DeclareUnicodeCharacter{2212}" not in source
+    assert "\\catcode`\\\N{MINUS SIGN}=\\active" in source
+    assert "\\tracinglostchars=3" in source
     assert custom_declaration in source
 
 
-def test_tex_resources_come_only_from_tectonic_bundle(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+@pytest.fixture
+def fresh_bundle_cache() -> Iterator[None]:
+    from mpl_tectonic import _patch
+
+    def clear() -> None:
+        for value in vars(_patch).values():
+            if hasattr(value, "cache_clear"):
+                value.cache_clear()
+
+    clear()
+    yield
+    clear()
+
+
+def _fake_tectonic(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    files: dict[str, bytes],
+    stderr: bytes = b"",
+) -> list[list[str]]:
     from mpl_tectonic import _patch
 
     calls = []
 
-    def bundle_cat(command: list[str], *, stderr: int) -> bytes:
-        calls.append((command, stderr))
-        return b"bundle resource"
+    def run(command: list[str], *, check: bool = False, **kwargs: object):
+        calls.append(command)
+        match command[1:]:
+            case ["-X", "bundle", "cat", name] if name in files:
+                stdout, returncode = files[name], 0
+            case _:
+                stdout, returncode = b"", 1
+        if check and returncode:
+            raise subprocess.CalledProcessError(returncode, command, stdout, stderr)
+        return subprocess.CompletedProcess(command, returncode, stdout, stderr)
 
     monkeypatch.setattr(TexManager, "_cache_dir", tmp_path)
     monkeypatch.setattr(_patch, "_tectonic", lambda: "/usr/bin/tectonic")
-    monkeypatch.setattr(_patch.subprocess, "check_output", bundle_cat)
+    monkeypatch.setattr(_patch.subprocess, "run", run)
+    return calls
+
+
+def test_tex_resources_come_only_from_tectonic_bundle(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fresh_bundle_cache: None
+) -> None:
+    from mpl_tectonic import _patch
+
+    calls = _fake_tectonic(monkeypatch, tmp_path, {"pdftex.map": b"bundle resource"})
 
     resolved = Path(_patch._find_in_tectonic_bundle("pdftex.map"))
 
     assert resolved.read_bytes() == b"bundle resource"
+    assert calls == [["/usr/bin/tectonic", "-X", "bundle", "cat", "pdftex.map"]]
+
+
+def test_tex_resource_hits_and_misses_are_looked_up_once(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fresh_bundle_cache: None
+) -> None:
+    from mpl_tectonic import _patch
+
+    calls = _fake_tectonic(monkeypatch, tmp_path, {"cmr10.tfm": b"tfm"})
+
+    for _ in range(3):
+        assert Path(_patch._find_in_tectonic_bundle(b"cmr10.tfm")).is_file()
+        for name in ("cmr10.vf", b"cmr10.vf", "lmr10.vf"):
+            with pytest.raises(FileNotFoundError):
+                _patch._find_in_tectonic_bundle(name)
+
     assert calls == [
-        (
-            ["/usr/bin/tectonic", "-X", "bundle", "cat", "pdftex.map"],
-            subprocess.DEVNULL,
-        )
+        ["/usr/bin/tectonic", "-X", "bundle", "cat", "cmr10.tfm"],
+        ["/usr/bin/tectonic", "-X", "bundle", "cat", "cmr10.vf"],
+        ["/usr/bin/tectonic", "-X", "bundle", "cat", "lmr10.vf"],
     ]
+
+
+def test_tectonic_diagnostics_are_logged_and_reported_on_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    fresh_bundle_cache: None,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from mpl_tectonic import _patch
+
+    _fake_tectonic(
+        monkeypatch, tmp_path, {"cmr10.tfm": b"tfm"}, stderr=b"note: downloading"
+    )
+    with caplog.at_level(logging.DEBUG, logger="mpl_tectonic"):
+        _patch._find_in_tectonic_bundle("cmr10.tfm")
+    assert "note: downloading" in caplog.text
+
+    with pytest.raises(RuntimeError, match="exit status 1(.|\n)*note: downloading"):
+        _patch._run_tectonic("-X", "bundle", "cat", "absent.tfm")
 
 
 def test_enable_installs_every_hook_and_is_idempotent() -> None:
@@ -224,3 +296,73 @@ def test_pdf_rejects_unsupported_native_glyph_with_clear_error(tmp_path: Path) -
         ):
             fig.savefig(output)
         plt.close(fig)
+
+
+def _glyphs(tex: str) -> list[tuple[bytes, int]]:
+    with dviread.Dvi(TexManager.make_dvi(tex, 10), None) as dvi:
+        page = next(iter(dvi))
+    return [(text.font.texname, text.glyph) for text in page.text]
+
+
+@pytest.mark.parametrize(
+    "preamble", ["", r"\usepackage[T1]{fontenc}\usepackage{lmodern}"]
+)
+def test_unicode_minus_renders_as_math_minus(preamble: str) -> None:
+    mpl_tectonic.enable()
+    with plt.rc_context({"text.latex.preamble": preamble}):
+        unicode_minus = _glyphs("$\\mathdefault{\N{MINUS SIGN}1.2}$")
+        ascii_minus = _glyphs(r"$\mathdefault{-1.2}$")
+
+    assert len(ascii_minus) == 4
+    assert unicode_minus == ascii_minus
+
+
+def test_dvi_from_matplotlibs_source_is_not_reused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    mpl_tectonic.enable()
+    monkeypatch.setattr(TexManager, "_cache_dir", tmp_path)
+    tex = "$\\mathdefault{\N{MINUS SIGN}2.5}$"
+    # mpl-tectonic 0.1.1 cached XDV at Matplotlib's path for its source.
+    stale = TexManager._get_base_path(tex, 10).with_suffix(".dvi")
+    stale.write_bytes(b"stale")
+
+    assert Path(TexManager.make_dvi(tex, 10)).read_bytes() != b"stale"
+
+
+def test_glyph_missing_from_font_is_an_error() -> None:
+    mpl_tectonic.enable()
+    with pytest.raises(RuntimeError, match="Missing character"):
+        TexManager.make_dvi("\N{CJK UNIFIED IDEOGRAPH-4E2D}", 10)
+
+
+def test_cold_tectonic_cache_writes_nothing_to_stderr(tmp_path: Path) -> None:
+    code = """
+import sys
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import mpl_tectonic
+
+mpl_tectonic.enable()
+with plt.rc_context({"text.usetex": True}):
+    fig, ax = plt.subplots()
+    ax.set_xlabel(r"energy $E / \\Delta$")
+    fig.savefig(sys.argv[1])
+"""
+    output = tmp_path / "render.pdf"
+    result = subprocess.run(
+        [sys.executable, "-c", code, output],
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "MPLCONFIGDIR": str(tmp_path / "mplconfig"),
+            "TECTONIC_CACHE_DIR": str(tmp_path / "tectonic"),
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ""
+    assert (tmp_path / "tectonic").is_dir()
+    assert output.read_bytes().startswith(b"%PDF-")

@@ -16,7 +16,8 @@ python -m pip install mpl-tectonic
 
 The `tectonic` executable is also required on `PATH`. It is an external runtime
 dependency, not a Python package. This repository's Pixi environment installs
-the validated Tectonic 0.15 release.
+the validated Tectonic 0.16 release; the test suite also passes with Tectonic
+0.15.
 
 ## Usage
 
@@ -45,16 +46,23 @@ status, or context-manager API.
 
 Matplotlib 3.11 can read XeTeX's XDV format, but its `usetex` manager invokes
 `latex` and expects a `.dvi` cache file. `mpl-tectonic` asks Tectonic for XDV,
-places it at the cache path Matplotlib expects, and adapts the remaining private
+places it in Matplotlib's TeX cache, and adapts the remaining private
 integration points:
 
-- pdfLaTeX-only UTF-8 declarations are removed from Matplotlib's generated TeX;
+- Matplotlib's pdfLaTeX-only UTF-8 setup is adapted to XeTeX: its character
+  declarations, such as the one rendering U+2212 as a math minus, are kept, and
+  a character missing from its font is an error instead of being dropped;
 - native fonts and classic TeX resources are materialized from Tectonic's
-  bundle, keeping resource resolution consistent with the compiler;
+  bundle, keeping resource resolution consistent with the compiler; the bundle
+  is listed once per process, so absent resources cost no Tectonic call;
 - XDV native OpenType fonts use Matplotlib's TrueType PDF embedding path and
   safe PDF resource names;
 - Matplotlib's opaque one-byte native-glyph failure is replaced with an
   actionable error.
+
+Tectonic's diagnostics, such as the notes it prints while downloading fonts, do
+not reach stderr. They are logged by the `mpl_tectonic` logger at debug level
+and included in the error message when a Tectonic call fails.
 
 SVG text is emitted as vector glyph paths. Native PDF output contains embedded,
 subsetted fonts rather than converting an SVG or raster image.
@@ -77,6 +85,11 @@ subsetted fonts rather than converting an SVG or raster image.
   fallback for such labels.
 - Tectonic may need network access on its first run to obtain its default
   bundle, depending on how Tectonic was installed and cached.
+- Tectonic 0.16 contacts its bundle server on every call, which takes about a
+  second even with a warm cache, against a few hundredths of a second for
+  Tectonic 0.15. Every distinct label is one Tectonic compilation, so the first
+  render of a figure with many labels takes correspondingly long; Matplotlib's
+  TeX cache makes later renders fast.
 
 ## Development
 
