@@ -6,8 +6,10 @@ public package does not import or modify Matplotlib.
 
 from __future__ import annotations
 
+import functools
 import hashlib
 from importlib.metadata import version
+import logging
 import os
 from pathlib import Path
 import re
@@ -23,6 +25,8 @@ from matplotlib.dviread import DviFont
 from matplotlib.font_manager import FontPath
 from matplotlib.texmanager import TexManager
 
+
+_log = logging.getLogger(__name__)
 
 _SUPPORTED_MATPLOTLIB = ">=3.11,<3.12"
 _enabled = False
@@ -80,16 +84,38 @@ def _tectonic() -> str:
     return _tectonic_executable
 
 
+def _xetex_unicode_character(line: str) -> str:
+    """Translate an inputenc ``\\DeclareUnicodeCharacter`` to XeTeX."""
+    match = re.fullmatch(
+        r"\\DeclareUnicodeCharacter\{([0-9A-Fa-f]{4,6})\}\{(.*)\}", line.strip()
+    )
+    if match is None:
+        raise RuntimeError(
+            f"Matplotlib generated an unexpected Unicode declaration {line!r}; "
+            "mpl-tectonic's Matplotlib compatibility assumptions no longer hold."
+        )
+    character = chr(int(match[1], 16))
+    return f"\\catcode`\\{character}=\\active\\def{character}{{{match[2]}}}\n"
+
+
 def _tectonic_tex_source(tex: str, fontsize: float) -> str:
-    """Return Matplotlib's source without its pdfLaTeX-only UTF-8 setup."""
+    """Return Matplotlib's source with its UTF-8 setup adapted to XeTeX.
+
+    XeTeX reads UTF-8 natively, so ``inputenc`` is dropped. Matplotlib's
+    character declarations, such as the one rendering U+2212 as a math minus,
+    become active-character definitions, and a character missing from its font
+    is an error rather than silently dropped.
+    """
     lines = TexManager._get_tex_source(tex, fontsize).splitlines(keepends=True)
     for index, line in enumerate(lines):
         if re.fullmatch(r"\\usepackage(?:\[[^]]*\])?\{inputenc\}", line.strip()):
-            del lines[index]
+            lines[index] = "\\tracinglostchars=3\n"
+            index += 1
             while index < len(lines) and lines[index].lstrip().startswith(
                 r"\DeclareUnicodeCharacter"
             ):
-                del lines[index]
+                lines[index] = _xetex_unicode_character(lines[index])
+                index += 1
             return "".join(lines)
     raise RuntimeError(
         "Matplotlib generated TeX without the expected inputenc setup; "
@@ -97,24 +123,64 @@ def _tectonic_tex_source(tex: str, fontsize: float) -> str:
     )
 
 
+def _run_tectonic(*args: str) -> bytes:
+    """Run Tectonic, logging its diagnostics instead of passing them through."""
+    command = [_tectonic(), *args]
+    result = subprocess.run(command, capture_output=True)
+    diagnostics = result.stderr.decode("utf-8", "backslashreplace").strip()
+    if diagnostics:
+        _log.debug("%s:\n%s", " ".join(command), diagnostics)
+    if result.returncode:
+        raise RuntimeError(
+            f"{' '.join(command)!r} failed with exit status {result.returncode}. "
+            "Check that Tectonic can access its bundle cache or network. "
+            f"Tectonic reported:\n{diagnostics}"
+        )
+    return result.stdout
+
+
 def _make_dvi_with_tectonic(cls: type[TexManager], tex: str, fontsize: float) -> str:
-    """Compile Matplotlib's generated TeX to XDV using Tectonic."""
-    dvipath = cls._get_base_path(tex, fontsize).with_suffix(".dvi")
+    """Compile Matplotlib's generated TeX to XDV using Tectonic.
+
+    Like Matplotlib's own cache path, the XDV path hashes the compiled source,
+    which here is the XeTeX adaptation. It therefore never reuses a DVI from
+    ``latex`` or from a release of this package that compiled other source.
+    """
+    source = _tectonic_tex_source(tex, fontsize)
+    filehash = hashlib.sha256(source.encode("utf-8"), usedforsecurity=False).hexdigest()
+    cache_dir = cls._cache_dir / filehash[:2] / filehash[2:4]
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    dvipath = (cache_dir / filehash).with_suffix(".dvi")
     if not dvipath.exists():
         with TemporaryDirectory(dir=dvipath.parent) as tmpdir:
             texfile = Path(tmpdir, "file.tex")
-            texfile.write_text(_tectonic_tex_source(tex, fontsize), encoding="utf-8")
-            cls._run_checked_subprocess(
-                [
-                    _tectonic(),
-                    "--outfmt=xdv",
-                    "--outdir",
-                    tmpdir,
-                    texfile.name,
-                ],
-                tex,
-                cwd=tmpdir,
-            )
+            texfile.write_text(source, encoding="utf-8")
+            try:
+                cls._run_checked_subprocess(
+                    [
+                        _tectonic(),
+                        "--keep-logs",
+                        "--outfmt=xdv",
+                        "--outdir",
+                        tmpdir,
+                        texfile.name,
+                    ],
+                    tex,
+                    cwd=tmpdir,
+                )
+            except RuntimeError as exc:
+                # Tectonic's output omits some TeX errors, such as a character
+                # missing from its font, so report the log's error lines too.
+                logfile = Path(tmpdir, "file.log")
+                if logfile.is_file():
+                    errors = [
+                        line
+                        for line in logfile.read_text(errors="replace").splitlines()
+                        if line.startswith("! ")
+                    ]
+                    if errors:
+                        exc.add_note("TeX reported:\n" + "\n".join(errors))
+                raise
             xdvfile = Path(tmpdir, "file.xdv")
             if not xdvfile.is_file():
                 raise RuntimeError(
@@ -135,12 +201,32 @@ def _font_from_tectonic_bundle(
         font_dir.mkdir(exist_ok=True)
         path = (font_dir / path.name).with_suffix(".otf")
         if not path.exists():
-            path.write_bytes(
-                subprocess.check_output([_tectonic(), "-X", "bundle", "cat", path.name])
-            )
+            path.write_bytes(_run_tectonic("-X", "bundle", "cat", path.name))
     return _ORIGINAL_FONT_FROM_XETEX.__func__(
         cls, scale, os.fsencode(path), subfont, effects
     )
+
+
+@functools.cache
+def _bundle_resource(name: str) -> str | None:
+    """Return the materialized bundle resource, or ``None`` if it is absent.
+
+    Results, including absences, are cached for the lifetime of the process,
+    so an absent resource, such as the virtual font of a TFM font, costs one
+    Tectonic call per process instead of one per label. Tectonic's ``bundle
+    search`` cannot decide absence: Tectonic 0.17 lists only the part of the
+    bundle index that it has loaded, which may be nothing.
+    """
+    path = TexManager._cache_dir / "tectonic-resources" / name
+    if path.exists():
+        return str(path)
+    try:
+        contents = _run_tectonic("-X", "bundle", "cat", name)
+    except RuntimeError:
+        return None
+    path.parent.mkdir(exist_ok=True)
+    path.write_bytes(contents)
+    return str(path)
 
 
 def _find_in_tectonic_bundle(filename: str | bytes) -> str:
@@ -150,25 +236,13 @@ def _find_in_tectonic_bundle(filename: str | bytes) -> str:
         raise FileNotFoundError(
             f"Tectonic bundle resources must be requested by basename; got {name!r}"
         )
-    resource_dir = TexManager._cache_dir / "tectonic-resources"
-    resource_dir.mkdir(exist_ok=True)
-    path = resource_dir / name
-    if not path.exists():
-        try:
-            path.write_bytes(
-                subprocess.check_output(
-                    [_tectonic(), "-X", "bundle", "cat", name],
-                    stderr=subprocess.DEVNULL,
-                )
-            )
-        except subprocess.CalledProcessError:
-            path.unlink(missing_ok=True)
-            raise FileNotFoundError(
-                f"Could not materialize {name!r} from Tectonic's bundle. Check "
-                "that the resource exists and that Tectonic can access its "
-                "bundle cache or network."
-            ) from None
-    return str(path)
+    path = _bundle_resource(name)
+    if path is None:
+        raise FileNotFoundError(
+            f"Tectonic's bundle does not provide {name!r}; the logger "
+            "'mpl_tectonic' reports Tectonic's diagnostics at debug level"
+        )
+    return path
 
 
 def _embed_tex_font_with_opentype(self: PdfFile, dvifont: DviFont):
