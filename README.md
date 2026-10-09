@@ -16,8 +16,8 @@ python -m pip install mpl-tectonic
 
 The `tectonic` executable is also required on `PATH`. It is an external runtime
 dependency, not a Python package. This repository's Pixi environment installs
-the validated Tectonic 0.16 release; the test suite also passes with Tectonic
-0.15.
+the validated Tectonic 0.17 release; the test suite also passes with Tectonic
+0.15 and 0.16.
 
 ## Usage
 
@@ -53,8 +53,9 @@ integration points:
   declarations, such as the one rendering U+2212 as a math minus, are kept, and
   a character missing from its font is an error instead of being dropped;
 - native fonts and classic TeX resources are materialized from Tectonic's
-  bundle, keeping resource resolution consistent with the compiler; the bundle
-  is listed once per process, so absent resources cost no Tectonic call;
+  bundle, keeping resource resolution consistent with the compiler; found and
+  absent resources are cached for the process, so each costs at most one
+  Tectonic call;
 - XDV native OpenType fonts use Matplotlib's TrueType PDF embedding path and
   safe PDF resource names;
 - Matplotlib's opaque one-byte native-glyph failure is replaced with an
@@ -85,11 +86,11 @@ subsetted fonts rather than converting an SVG or raster image.
   fallback for such labels.
 - Tectonic may need network access on its first run to obtain its default
   bundle, depending on how Tectonic was installed and cached.
-- Tectonic 0.16 contacts its bundle server on every call, which takes about a
-  second even with a warm cache, against a few hundredths of a second for
-  Tectonic 0.15. Every distinct label is one Tectonic compilation, so the first
-  render of a figure with many labels takes correspondingly long; Matplotlib's
-  TeX cache makes later renders fast.
+- Every distinct label is one Tectonic compilation. Tectonic 0.16 contacts its
+  bundle server on every call, which takes about 1.5 s even with a warm cache,
+  so the first render of a figure with many labels is slow; Tectonic 0.15 and
+  0.17 take about 0.1 s per label. Matplotlib's TeX cache makes later renders
+  fast with any version.
 
 ## Development
 
