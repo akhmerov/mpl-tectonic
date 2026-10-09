@@ -21,12 +21,12 @@ hatchling = ">=1.27,<2"
 [package.run-dependencies]
 python = ">=3.11"
 matplotlib-base = ">=3.11,<3.12"
-tectonic = ">=0.15,<0.17"
+tectonic = ">=0.15,<0.18"
 
 [dependencies]
 python = ">=3.12,<3.15"
 matplotlib = ">=3.11,<3.12"
-tectonic = ">=0.16.9,<0.17"
+tectonic = ">=0.17,<0.18"
 pytest = ">=8,<9"
 pypdf = ">=6,<7"
 hatchling = ">=1.27,<2"
