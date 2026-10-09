@@ -49,13 +49,14 @@ Matplotlib 3.11 can read XeTeX's XDV format, but its `usetex` manager invokes
 places it in Matplotlib's TeX cache, and adapts the remaining private
 integration points:
 
-- Matplotlib's pdfLaTeX-only UTF-8 setup is adapted to XeTeX: its character
-  declarations, such as the one rendering U+2212 as a math minus, are kept, and
-  a character missing from its font is an error instead of being dropped;
+- Matplotlib's pdfLaTeX-only UTF-8 setup is adapted to XeTeX:
+  `\DeclareUnicodeCharacter` declarations, such as Matplotlib's rendering of
+  U+2212 as a math minus, take effect, and a character missing from its font is
+  an error instead of being dropped;
 - native fonts and classic TeX resources are materialized from Tectonic's
-  bundle, keeping resource resolution consistent with the compiler; found and
-  absent resources are cached for the process, so each costs at most one
-  Tectonic call;
+  bundle, keeping resource resolution consistent with the compiler; found
+  resources are cached on disk and absent ones for the process, so each costs
+  at most one Tectonic call;
 - XDV native OpenType fonts use Matplotlib's TrueType PDF embedding path and
   safe PDF resource names;
 - Matplotlib's opaque one-byte native-glyph failure is replaced with an
